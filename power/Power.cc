@@ -49,23 +49,6 @@
 #include "Bfs.hh"
 #include "ClkNetwork.hh"
 #include <fstream>
-<<<<<<< HEAD
-#include <nlohmann/json.hpp>  // You might need to add this dependency
-using json = nlohmann::json;
-// Related liberty not supported:
-// library
-//  default_cell_leakage_power : 0;
-//  output_voltage (default_VDD_VSS_output) {
-// leakage_power
-//  related_pg_pin : VDD;
-// internal_power
-//  input_voltage : default_VDD_VSS_input;
-// pin
-//  output_voltage : default_VDD_VSS_output;
-//
-// transition_density = activity / clock_period
-=======
->>>>>>> temp-branch
 
 namespace sta {
 
@@ -795,24 +778,6 @@ Power::findInternalPower(const Instance *inst,
       float load_cap = to_port->direction()->isAnyOutput()
         ? graph_delay_calc_->loadCap(to_pin, dcalc_ap)
         : 0.0;
-<<<<<<< HEAD
-      
-      
-
-      PwrActivity activity = findClkedActivity(to_pin, inst_clk);
-
-      std::string pinName = network_->name(to_pin);
-      std::cout << "Pin Name: " << pinName << std::endl;
-      std::cout << "activity (transitions/sec): " << activity.activity();
-      if (inst_clk) {
-          float period = inst_clk->period();
-          if (period > 0.0) {
-              float normalized_activity = activity.activity() * period;
-              std::cout << " (transitions/cycle: " << normalized_activity << ")";
-          }
-      }
-      std::cout << std::endl;
-=======
 
       PwrActivity activity = findClkedActivity(to_pin, inst_clk);
       std::string pinName = network_->name(to_pin);
@@ -830,7 +795,6 @@ Power::findInternalPower(const Instance *inst,
         }
       }
       out_file << "\n\n";
->>>>>>> temp-branch
 
       if (to_port->direction()->isAnyOutput())
         findOutputInternalPower(to_port, inst, cell, activity,
