@@ -18,8 +18,9 @@
 
 #include <algorithm> // max
 #include <cmath>     // abs
-
+#include <iostream>
 #include "cudd.h"
+#include "Stats.hh"
 #include "Debug.hh"
 #include "EnumNameMap.hh"
 #include "Hash.hh"
@@ -47,19 +48,7 @@
 #include "Search.hh"
 #include "Bfs.hh"
 #include "ClkNetwork.hh"
-
-// Related liberty not supported:
-// library
-//  default_cell_leakage_power : 0;
-//  output_voltage (default_VDD_VSS_output) {
-// leakage_power
-//  related_pg_pin : VDD;
-// internal_power
-//  input_voltage : default_VDD_VSS_input;
-// pin
-//  output_voltage : default_VDD_VSS_output;
-//
-// transition_density = activity / clock_period
+#include <fstream>
 
 namespace sta {
 
@@ -233,9 +222,15 @@ Power::power(const Corner *corner,
   pad.clear();
 
   ensureActivities();
+  Stats stats(debug_, report_);
   LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
   while (inst_iter->hasNext()) {
     Instance *inst = inst_iter->next();
+    
+    // Get the name from the dbInst object
+    std::string instanceName = network_->name(inst);
+    std::cout << "Instance Name: " << instanceName << std::endl;
+
     LibertyCell *cell = network_->libertyCell(inst);
     if (cell) {
       PowerResult inst_power = power(inst, cell, corner);
@@ -255,6 +250,7 @@ Power::power(const Corner *corner,
     }
   }
   delete inst_iter;
+  stats.report("Find power");
 }
 
 bool
@@ -597,13 +593,16 @@ Power::evalBddActivity(DdNode *bdd,
       Cudd_RecursiveDeref(bdd_.cuddMgr(), diff);
       float var_act = var_activity.activity() * diff_duty;
       activity += var_act;
-      const Clock *clk = findClk(pin);
-      float clk_period = clk ? clk->period() : 1.0;
-      debugPrint(debug_, "power_activity", 3, "var %s %.3e * %.3f = %.3e",
-                 port->name(),
-                 var_activity.activity() / clk_period,
-                 diff_duty,
-                 var_act / clk_period);
+      if (debug_->check("power_activity", 3)) {
+        const Clock *clk = findClk(pin);
+        float clk_period = clk ? clk->period() : 1.0;
+        debugPrint(debug_, "power_activity", 3, "var %s%s %.3e * %.3f = %.3e",
+                   port->name(),
+                   clk ? "" : " (unclocked)",
+                   var_activity.activity() / clk_period,
+                   diff_duty,
+                   var_act / clk_period);
+      }
     }
   }
   return activity;
@@ -761,9 +760,11 @@ Power::findInternalPower(const Instance *inst,
                          LibertyCell *cell,
                          const Corner *corner,
                          const Clock *inst_clk,
-                         // Return values.
                          PowerResult &result)
 {
+  // Open file for writing
+  std::ofstream out_file("power_activity.txt", std::ios::app);  // append mode
+
   const DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
   InstancePinIterator *pin_iter = network_->pinIterator(inst);
   while (pin_iter->hasNext()) {
@@ -773,16 +774,34 @@ Power::findInternalPower(const Instance *inst,
       float load_cap = to_port->direction()->isAnyOutput()
         ? graph_delay_calc_->loadCap(to_pin, dcalc_ap)
         : 0.0;
+
       PwrActivity activity = findClkedActivity(to_pin, inst_clk);
+      std::string pinName = network_->name(to_pin);
+      
+      // Write to file in a structured format
+      out_file << "Instance: " << network_->name(inst) << "\n";
+      out_file << "  Pin: " << pinName << "\n";
+      out_file << "  Activity (transitions/sec): " << activity.activity();
+      
+      if (inst_clk) {
+        float period = inst_clk->period();
+        if (period > 0.0) {
+          float normalized_activity = activity.activity() * period;
+          out_file << " (transitions/cycle: " << normalized_activity << ")";
+        }
+      }
+      out_file << "\n\n";
+
       if (to_port->direction()->isAnyOutput())
         findOutputInternalPower(to_port, inst, cell, activity,
-                                load_cap, corner, result);
+                               load_cap, corner, result);
       if (to_port->direction()->isAnyInput())
         findInputInternalPower(to_pin, to_port, inst, cell, activity,
                                load_cap, corner, result);
     }
   }
   delete pin_iter;
+  out_file.close();
 }
 
 void
