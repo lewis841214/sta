@@ -48,6 +48,9 @@
 #include "Search.hh"
 #include "Bfs.hh"
 #include "ClkNetwork.hh"
+#include <fstream>
+#include <nlohmann/json.hpp>  // You might need to add this dependency
+using json = nlohmann::json;
 // Related liberty not supported:
 // library
 //  default_cell_leakage_power : 0;
