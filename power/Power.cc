@@ -49,6 +49,7 @@
 #include "Bfs.hh"
 #include "ClkNetwork.hh"
 #include <fstream>
+<<<<<<< HEAD
 #include <nlohmann/json.hpp>  // You might need to add this dependency
 using json = nlohmann::json;
 // Related liberty not supported:
@@ -63,6 +64,8 @@ using json = nlohmann::json;
 //  output_voltage : default_VDD_VSS_output;
 //
 // transition_density = activity / clock_period
+=======
+>>>>>>> temp-branch
 
 namespace sta {
 
@@ -778,9 +781,11 @@ Power::findInternalPower(const Instance *inst,
                          LibertyCell *cell,
                          const Corner *corner,
                          const Clock *inst_clk,
-                         // Return values.
                          PowerResult &result)
 {
+  // Open file for writing
+  std::ofstream out_file("power_activity.txt", std::ios::app);  // append mode
+
   const DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
   InstancePinIterator *pin_iter = network_->pinIterator(inst);
   while (pin_iter->hasNext()) {
@@ -790,6 +795,7 @@ Power::findInternalPower(const Instance *inst,
       float load_cap = to_port->direction()->isAnyOutput()
         ? graph_delay_calc_->loadCap(to_pin, dcalc_ap)
         : 0.0;
+<<<<<<< HEAD
       
       
 
@@ -806,16 +812,36 @@ Power::findInternalPower(const Instance *inst,
           }
       }
       std::cout << std::endl;
+=======
+
+      PwrActivity activity = findClkedActivity(to_pin, inst_clk);
+      std::string pinName = network_->name(to_pin);
+      
+      // Write to file in a structured format
+      out_file << "Instance: " << network_->name(inst) << "\n";
+      out_file << "  Pin: " << pinName << "\n";
+      out_file << "  Activity (transitions/sec): " << activity.activity();
+      
+      if (inst_clk) {
+        float period = inst_clk->period();
+        if (period > 0.0) {
+          float normalized_activity = activity.activity() * period;
+          out_file << " (transitions/cycle: " << normalized_activity << ")";
+        }
+      }
+      out_file << "\n\n";
+>>>>>>> temp-branch
 
       if (to_port->direction()->isAnyOutput())
         findOutputInternalPower(to_port, inst, cell, activity,
-                                load_cap, corner, result);
+                               load_cap, corner, result);
       if (to_port->direction()->isAnyInput())
         findInputInternalPower(to_pin, to_port, inst, cell, activity,
                                load_cap, corner, result);
     }
   }
   delete pin_iter;
+  out_file.close();
 }
 
 void
