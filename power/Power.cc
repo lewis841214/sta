@@ -18,7 +18,7 @@
 
 #include <algorithm> // max
 #include <cmath>     // abs
-
+#include <iostream>
 #include "cudd.h"
 #include "Stats.hh"
 #include "Debug.hh"
@@ -48,7 +48,6 @@
 #include "Search.hh"
 #include "Bfs.hh"
 #include "ClkNetwork.hh"
-
 // Related liberty not supported:
 // library
 //  default_cell_leakage_power : 0;
@@ -238,6 +237,11 @@ Power::power(const Corner *corner,
   LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
   while (inst_iter->hasNext()) {
     Instance *inst = inst_iter->next();
+    
+    // Get the name from the dbInst object
+    std::string instanceName = network_->name(inst);
+    std::cout << "Instance Name: " << instanceName << std::endl;
+
     LibertyCell *cell = network_->libertyCell(inst);
     if (cell) {
       PowerResult inst_power = power(inst, cell, corner);
@@ -754,6 +758,8 @@ Power::findInstClk(const Instance *inst)
   InstancePinIterator *pin_iter = network_->pinIterator(inst);
   while (pin_iter->hasNext()) {
     const Pin *pin = pin_iter->next();
+    
+    
     const Clock *clk = findClk(pin);
     if (clk) {
       inst_clk = clk;
@@ -781,7 +787,23 @@ Power::findInternalPower(const Instance *inst,
       float load_cap = to_port->direction()->isAnyOutput()
         ? graph_delay_calc_->loadCap(to_pin, dcalc_ap)
         : 0.0;
+      
+      
+
       PwrActivity activity = findClkedActivity(to_pin, inst_clk);
+
+      std::string pinName = network_->name(to_pin);
+      std::cout << "Pin Name: " << pinName << std::endl;
+      std::cout << "activity (transitions/sec): " << activity.activity();
+      if (inst_clk) {
+          float period = inst_clk->period();
+          if (period > 0.0) {
+              float normalized_activity = activity.activity() * period;
+              std::cout << " (transitions/cycle: " << normalized_activity << ")";
+          }
+      }
+      std::cout << std::endl;
+
       if (to_port->direction()->isAnyOutput())
         findOutputInternalPower(to_port, inst, cell, activity,
                                 load_cap, corner, result);
