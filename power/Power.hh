@@ -212,7 +212,7 @@ private:
   PwrSeqActivityMap seq_activity_map_;
   bool activities_valid_;
   Bdd bdd_;
-
+  void analyzeAllInstances();
   static constexpr int max_activity_passes_ = 100;
 
   friend class PropActivityVisitor;
