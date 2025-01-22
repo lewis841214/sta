@@ -214,6 +214,28 @@ Power::power(const Corner *corner,
 	     PowerResult &macro,
 	     PowerResult &pad)
 {
+  // Open file for writing
+  std::ofstream out_file("all_instances.txt", std::ios::app);
+
+  LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
+  while (inst_iter->hasNext()) {
+    Instance *inst = inst_iter->next();
+    std::string instanceName = network_->name(inst);
+    
+    // Print all instances
+    out_file << "Instance: " << instanceName;
+    
+    LibertyCell *cell = network_->libertyCell(inst);
+    if (cell) {
+      out_file << " (Analyzed for power)";
+    } else {
+      out_file << " (Skipped - no liberty cell)";
+    }
+    out_file << "\n";
+  }
+  delete inst_iter;
+  out_file.close();
+
   total.clear();
   sequential.clear();
   combinational.clear();
