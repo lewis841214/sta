@@ -253,11 +253,7 @@ Power::power(const Corner *corner,
       total.incr(inst_power);
     }
   }
-<<<<<<< HEAD
-  delete inst_iter;
-=======
   delete power_inst_iter;
->>>>>>> dev1
   stats.report("Find power");
 }
 
