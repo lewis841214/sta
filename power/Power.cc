@@ -214,28 +214,10 @@ Power::power(const Corner *corner,
 	     PowerResult &macro,
 	     PowerResult &pad)
 {
-  // Open file for writing
-  std::ofstream out_file("all_instances.txt", std::ios::app);
+  // First analyze all instances
+  analyzeAllInstances();
 
-  LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
-  while (inst_iter->hasNext()) {
-    Instance *inst = inst_iter->next();
-    std::string instanceName = network_->name(inst);
-    
-    // Print all instances
-    out_file << "Instance: " << instanceName;
-    
-    LibertyCell *cell = network_->libertyCell(inst);
-    if (cell) {
-      out_file << " (Analyzed for power)";
-    } else {
-      out_file << " (Skipped - no liberty cell)";
-    }
-    out_file << "\n";
-  }
-  delete inst_iter;
-  out_file.close();
-
+  // Second loop: Perform power analysis
   total.clear();
   sequential.clear();
   combinational.clear();
@@ -245,9 +227,9 @@ Power::power(const Corner *corner,
 
   ensureActivities();
   Stats stats(debug_, report_);
-  LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
-  while (inst_iter->hasNext()) {
-    Instance *inst = inst_iter->next();
+  LeafInstanceIterator *power_inst_iter = network_->leafInstanceIterator();
+  while (power_inst_iter->hasNext()) {
+    Instance *inst = power_inst_iter->next();
     
     // Get the name from the dbInst object
     std::string instanceName = network_->name(inst);
@@ -257,21 +239,25 @@ Power::power(const Corner *corner,
     if (cell) {
       PowerResult inst_power = power(inst, cell, corner);
       if (cell->isMacro()
-	  || cell->isMemory()
+          || cell->isMemory()
           || cell->interfaceTiming())
-	macro.incr(inst_power);
+        macro.incr(inst_power);
       else if (cell->isPad())
-	pad.incr(inst_power);
+        pad.incr(inst_power);
       else if (inClockNetwork(inst))
-	clock.incr(inst_power);
+        clock.incr(inst_power);
       else if (cell->hasSequentials())
-	sequential.incr(inst_power);
+        sequential.incr(inst_power);
       else
-	combinational.incr(inst_power);
+        combinational.incr(inst_power);
       total.incr(inst_power);
     }
   }
+<<<<<<< HEAD
   delete inst_iter;
+=======
+  delete power_inst_iter;
+>>>>>>> dev1
   stats.report("Find power");
 }
 
@@ -1439,6 +1425,67 @@ const char *
 PwrActivity::originName() const
 {
   return pwr_activity_origin_map.find(origin_);
+}
+
+void
+Power::analyzeAllInstances()
+{
+  std::ofstream out_file("all_instances.txt", std::ios::app);
+  LeafInstanceIterator *all_inst_iter = network_->leafInstanceIterator();
+  while (all_inst_iter->hasNext()) {
+    Instance *inst = all_inst_iter->next();
+    std::string instanceName = network_->name(inst);
+    
+    // Print instance information
+    out_file << "Instance: " << instanceName;
+    
+    LibertyCell *cell = network_->libertyCell(inst);
+    if (cell) {
+      // out_file << " (Analyzed for power)\n";
+      
+      // Iterate through pins of this instance
+      InstancePinIterator *pin_iter = network_->pinIterator(inst);
+      if ( !pin_iter->hasNext()){
+        out_file << " (Skipped - no pins)";
+      }
+      else{
+        out_file << "\n";
+      }
+      while (pin_iter->hasNext()) {
+        const Pin *pin = pin_iter->next();
+        std::string pinName = network_->name(pin);
+        
+        // Get pin activity
+        PwrActivity activity = findClkedActivity(pin);
+        
+        // Get clock information
+        const Clock *clk = findClk(pin);
+        
+        // Write pin information
+        out_file << "  Pin: " << pinName << "\n";
+        out_file << "    Activity (transitions/sec): " << activity.activity();
+        
+        if (clk) {
+          float period = clk->period();
+          if (period > 0.0) {
+            float normalized_activity = activity.activity() * period;
+            out_file << "\n    transitions/cycle: " << normalized_activity ;
+          }
+          // out_file << "\n    Clock: " << clk->name();
+        } else {
+          out_file << " (unclocked)";
+        }
+        out_file << "\n";
+      }
+      delete pin_iter;
+      
+    } else {
+      out_file << " (Skipped - no liberty cell)";
+    }
+    out_file << "\n";  // Extra newline between instances
+  }
+  delete all_inst_iter;
+  out_file.close();
 }
 
 } // namespace
