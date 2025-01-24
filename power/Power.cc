@@ -18,8 +18,9 @@
 
 #include <algorithm> // max
 #include <cmath>     // abs
-
+#include <iostream>
 #include "cudd.h"
+#include "Stats.hh"
 #include "Debug.hh"
 #include "EnumNameMap.hh"
 #include "Hash.hh"
@@ -47,19 +48,7 @@
 #include "Search.hh"
 #include "Bfs.hh"
 #include "ClkNetwork.hh"
-
-// Related liberty not supported:
-// library
-//  default_cell_leakage_power : 0;
-//  output_voltage (default_VDD_VSS_output) {
-// leakage_power
-//  related_pg_pin : VDD;
-// internal_power
-//  input_voltage : default_VDD_VSS_input;
-// pin
-//  output_voltage : default_VDD_VSS_output;
-//
-// transition_density = activity / clock_period
+#include <fstream>
 
 namespace sta {
 
@@ -225,6 +214,10 @@ Power::power(const Corner *corner,
 	     PowerResult &macro,
 	     PowerResult &pad)
 {
+  // First analyze all instances
+  analyzeAllInstances();
+
+  // Second loop: Perform power analysis
   total.clear();
   sequential.clear();
   combinational.clear();
@@ -233,28 +226,35 @@ Power::power(const Corner *corner,
   pad.clear();
 
   ensureActivities();
-  LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
-  while (inst_iter->hasNext()) {
-    Instance *inst = inst_iter->next();
+  Stats stats(debug_, report_);
+  LeafInstanceIterator *power_inst_iter = network_->leafInstanceIterator();
+  while (power_inst_iter->hasNext()) {
+    Instance *inst = power_inst_iter->next();
+    
+    // Get the name from the dbInst object
+    // std::string instanceName = network_->name(inst);
+    // std::cout << "Instance Name: " << instanceName << std::endl;
+
     LibertyCell *cell = network_->libertyCell(inst);
     if (cell) {
       PowerResult inst_power = power(inst, cell, corner);
       if (cell->isMacro()
-	  || cell->isMemory()
+          || cell->isMemory()
           || cell->interfaceTiming())
-	macro.incr(inst_power);
+        macro.incr(inst_power);
       else if (cell->isPad())
-	pad.incr(inst_power);
+        pad.incr(inst_power);
       else if (inClockNetwork(inst))
-	clock.incr(inst_power);
+        clock.incr(inst_power);
       else if (cell->hasSequentials())
-	sequential.incr(inst_power);
+        sequential.incr(inst_power);
       else
-	combinational.incr(inst_power);
+        combinational.incr(inst_power);
       total.incr(inst_power);
     }
   }
-  delete inst_iter;
+  delete power_inst_iter;
+  stats.report("Find power");
 }
 
 bool
@@ -597,13 +597,16 @@ Power::evalBddActivity(DdNode *bdd,
       Cudd_RecursiveDeref(bdd_.cuddMgr(), diff);
       float var_act = var_activity.activity() * diff_duty;
       activity += var_act;
-      const Clock *clk = findClk(pin);
-      float clk_period = clk ? clk->period() : 1.0;
-      debugPrint(debug_, "power_activity", 3, "var %s %.3e * %.3f = %.3e",
-                 port->name(),
-                 var_activity.activity() / clk_period,
-                 diff_duty,
-                 var_act / clk_period);
+      if (debug_->check("power_activity", 3)) {
+        const Clock *clk = findClk(pin);
+        float clk_period = clk ? clk->period() : 1.0;
+        debugPrint(debug_, "power_activity", 3, "var %s%s %.3e * %.3f = %.3e",
+                   port->name(),
+                   clk ? "" : " (unclocked)",
+                   var_activity.activity() / clk_period,
+                   diff_duty,
+                   var_act / clk_period);
+      }
     }
   }
   return activity;
@@ -617,6 +620,7 @@ Power::ensureActivities()
   // No need to propagate activites if global activity is set.
   if (!global_activity_.isSet()) {
     if (!activities_valid_) {
+      Stats stats(debug_, report_);
       // Clear existing activities.
       activity_map_.clear();
       seq_activity_map_.clear();
@@ -646,6 +650,7 @@ Power::ensureActivities()
                    pass, visitor.maxChange());
         pass++;
       }
+      stats.report("Find power activities");
       activities_valid_ = true;
     }
   }
@@ -746,6 +751,8 @@ Power::findInstClk(const Instance *inst)
   InstancePinIterator *pin_iter = network_->pinIterator(inst);
   while (pin_iter->hasNext()) {
     const Pin *pin = pin_iter->next();
+    
+    
     const Clock *clk = findClk(pin);
     if (clk) {
       inst_clk = clk;
@@ -761,9 +768,11 @@ Power::findInternalPower(const Instance *inst,
                          LibertyCell *cell,
                          const Corner *corner,
                          const Clock *inst_clk,
-                         // Return values.
                          PowerResult &result)
 {
+  // Open file for writing
+  std::ofstream out_file("power_activity.txt", std::ios::app);  // append mode
+
   const DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
   InstancePinIterator *pin_iter = network_->pinIterator(inst);
   while (pin_iter->hasNext()) {
@@ -773,16 +782,34 @@ Power::findInternalPower(const Instance *inst,
       float load_cap = to_port->direction()->isAnyOutput()
         ? graph_delay_calc_->loadCap(to_pin, dcalc_ap)
         : 0.0;
+
       PwrActivity activity = findClkedActivity(to_pin, inst_clk);
+      std::string pinName = network_->name(to_pin);
+      
+      // Write to file in a structured format
+      out_file << "Instance: " << network_->name(inst) << "\n";
+      out_file << "  Pin: " << pinName << "\n";
+      out_file << "  Activity (transitions/sec): " << activity.activity();
+      
+      if (inst_clk) {
+        float period = inst_clk->period();
+        if (period > 0.0) {
+          float normalized_activity = activity.activity() * period;
+          out_file << " (transitions/cycle: " << normalized_activity << ")";
+        }
+      }
+      out_file << "\n\n";
+
       if (to_port->direction()->isAnyOutput())
         findOutputInternalPower(to_port, inst, cell, activity,
-                                load_cap, corner, result);
+                               load_cap, corner, result);
       if (to_port->direction()->isAnyInput())
         findInputInternalPower(to_pin, to_port, inst, cell, activity,
                                load_cap, corner, result);
     }
   }
   delete pin_iter;
+  out_file.close();
 }
 
 void
@@ -1394,6 +1421,67 @@ const char *
 PwrActivity::originName() const
 {
   return pwr_activity_origin_map.find(origin_);
+}
+
+void
+Power::analyzeAllInstances()
+{
+  std::ofstream out_file("all_instances_activity.txt", std::ios::app);
+  LeafInstanceIterator *all_inst_iter = network_->leafInstanceIterator();
+  while (all_inst_iter->hasNext()) {
+    Instance *inst = all_inst_iter->next();
+    std::string instanceName = network_->name(inst);
+    
+    // Print instance information
+    out_file << "Instance: " << instanceName;
+    
+    LibertyCell *cell = network_->libertyCell(inst);
+    if (cell) {
+      // out_file << " (Analyzed for power)\n";
+      
+      // Iterate through pins of this instance
+      InstancePinIterator *pin_iter = network_->pinIterator(inst);
+      if ( !pin_iter->hasNext()){
+        out_file << " (Skipped - no pins)";
+      }
+      else{
+        out_file << "\n";
+      }
+      while (pin_iter->hasNext()) {
+        const Pin *pin = pin_iter->next();
+        std::string pinName = network_->name(pin);
+        
+        // Get pin activity
+        PwrActivity activity = findClkedActivity(pin);
+        
+        // Get clock information
+        const Clock *clk = findClk(pin);
+        
+        // Write pin information
+        out_file << "  Pin: " << pinName << "\n";
+        out_file << "    Activity (transitions/sec): " << activity.activity();
+        
+        if (clk) {
+          float period = clk->period();
+          if (period > 0.0) {
+            float normalized_activity = activity.activity() * period;
+            out_file << "\n    transitions/cycle: " << normalized_activity ;
+          }
+          // out_file << "\n    Clock: " << clk->name();
+        } else {
+          out_file << " (unclocked)";
+        }
+        out_file << "\n";
+      }
+      delete pin_iter;
+      
+    } else {
+      out_file << " (Skipped - no liberty cell)";
+    }
+    out_file << "\n";  // Extra newline between instances
+  }
+  delete all_inst_iter;
+  out_file.close();
 }
 
 } // namespace
