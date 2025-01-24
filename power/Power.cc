@@ -232,8 +232,8 @@ Power::power(const Corner *corner,
     Instance *inst = power_inst_iter->next();
     
     // Get the name from the dbInst object
-    std::string instanceName = network_->name(inst);
-    std::cout << "Instance Name: " << instanceName << std::endl;
+    // std::string instanceName = network_->name(inst);
+    // std::cout << "Instance Name: " << instanceName << std::endl;
 
     LibertyCell *cell = network_->libertyCell(inst);
     if (cell) {
@@ -1426,7 +1426,7 @@ PwrActivity::originName() const
 void
 Power::analyzeAllInstances()
 {
-  std::ofstream out_file("all_instances.txt", std::ios::app);
+  std::ofstream out_file("all_instances_activity.txt", std::ios::app);
   LeafInstanceIterator *all_inst_iter = network_->leafInstanceIterator();
   while (all_inst_iter->hasNext()) {
     Instance *inst = all_inst_iter->next();
